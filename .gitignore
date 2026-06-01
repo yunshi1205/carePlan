@@ -1,0 +1,38 @@
+# Dependencies — installed via `npm install`, not stored in Git
+node_modules/
+
+# Next.js build output — regenerated on every `npm run build`
+.next/
+out/
+
+# Environment secrets — never commit API keys or database passwords
+.env
+.env.*
+!.env.example
+
+# Local SQLite database (may contain patient data)
+prisma/*.db
+prisma/*.db-journal
+
+# Logs and OS junk
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Test / coverage artifacts
+coverage/
+.nyc_output/
+
+# IDE (optional — uncomment if you prefer not to share editor settings)
+# .idea/
+# .vscode/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Vercel
+.vercel
+
+# Vitest cache
+node_modules/.vite/
