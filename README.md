@@ -1,6 +1,6 @@
 # Care Plan Generator
 
-Minimal Django app: web form → sync API → OpenAI → care plan text.
+Minimal Django app: web form → sync API → Anthropic Claude → care plan text.
 
 See [design_doc.md](./design_doc.md) for full product design.
 
@@ -8,7 +8,7 @@ See [design_doc.md](./design_doc.md) for full product design.
 
 ```bash
 cp .env.example .env
-# Edit .env and set OPENAI_API_KEY
+# Edit .env and set ANTHROPIC_API_KEY
 
 docker compose up --build
 ```
@@ -44,7 +44,8 @@ Response statuses: `pending` → `processing` → `completed` | `failed`
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_MODEL=claude-sonnet-4-20250514
 python manage.py runserver
 ```
 
@@ -52,5 +53,5 @@ python manage.py runserver
 
 - Python 3.12, Django 5
 - In-memory order store (no database)
-- OpenAI Chat Completions
+- Anthropic Messages API (Claude)
 - No queues, workers, or WebSockets

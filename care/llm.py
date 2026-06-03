@@ -1,5 +1,5 @@
 from django.conf import settings
-from openai import OpenAI
+from anthropic import Anthropic
 
 
 SYSTEM_PROMPT = """You are a clinical pharmacist writing a specialty pharmacy care plan.
@@ -21,8 +21,8 @@ def generate_care_plan(
     primary_diagnosis: str,
     patient_records: str,
 ) -> str:
-    if not settings.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not set")
+    if not settings.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set")
 
     user_content = f"""Patient: {patient_first_name} {patient_last_name}
 Medication: {medication_name}
@@ -32,13 +32,15 @@ Patient records:
 {patient_records}
 """
 
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
-    response = client.chat.completions.create(
-        model=settings.OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
+    client = Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    message = client.messages.create(
+        model=settings.ANTHROPIC_MODEL,
+        max_tokens=4096,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
         temperature=0.3,
     )
-    return response.choices[0].message.content or ""
+    blocks = message.content
+    if not blocks:
+        return ""
+    return blocks[0].text
