@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Care Plan Generator</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    label { display: block; margin-top: 1rem; font-weight: 600; }
+    input, textarea { width: 100%; margin-top: 0.25rem; padding: 0.5rem; box-sizing: border-box; }
+    button { margin-top: 1.5rem; padding: 0.6rem 1.2rem; cursor: pointer; }
+    #status { margin-top: 1rem; color: #555; }
+    #care-plan { margin-top: 2rem; display: none; }
+    #care-plan pre { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 6px; }
+    #error { color: #b00020; margin-top: 1rem; display: none; }
+    button:disabled { opacity: 0.6; cursor: wait; }
+  </style>
+</head>
+<body>
+  <h1>Care Plan Generator</h1>
+  <p>Submit the form and wait while the care plan is generated (sync).</p>
+
+  <form id="order-form">
+    <label>First name
+      <input name="patient_first_name" value="A." required>
+    </label>
+    <label>Last name
+      <input name="patient_last_name" value="B." required>
+    </label>
+    <label>Medication
+      <input name="medication_name" value="IVIG" required>
+    </label>
+    <label>Primary diagnosis
+      <input name="primary_diagnosis" value="Generalized myasthenia gravis">
+    </label>
+    <label>Patient records
+      <textarea name="patient_records" rows="10" required>Progressive proximal muscle weakness and ptosis over 2 weeks.
+Neurology recommends IVIG for rapid symptomatic control.
+Home meds: Pyridostigmine, Prednisone.</textarea>
+    </label>
+    <button type="submit" id="submit-btn">Generate care plan</button>
+  </form>
+
+  <p id="status"></p>
+  <p id="error"></p>
+
+  <section id="care-plan">
+    <h2>Care plan</h2>
+    <pre id="care-plan-text"></pre>
+  </section>
+
+  <script>
+    const form = document.getElementById("order-form");
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+    const carePlanSection = document.getElementById("care-plan");
+    const carePlanText = document.getElementById("care-plan-text");
+    const submitBtn = document.getElementById("submit-btn");
+
+    function hideResults() {
+      carePlanSection.style.display = "none";
+      errorEl.style.display = "none";
+      carePlanText.textContent = "";
+      errorEl.textContent = "";
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      hideResults();
+
+      const data = Object.fromEntries(new FormData(form));
+      submitBtn.disabled = true;
+      statusEl.textContent = "Status: pending → processing (please wait)…";
+
+      try {
+        const res = await fetch("/api/orders/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const order = await res.json();
+
+        if (!res.ok) {
+          statusEl.textContent = "";
+          errorEl.textContent = order.error || "Request failed";
+          errorEl.style.display = "block";
+          return;
+        }
+
+        statusEl.textContent = "Status: " + order.status;
+
+        if (order.status === "completed" && order.care_plan) {
+          carePlanText.textContent = order.care_plan;
+          carePlanSection.style.display = "block";
+        } else if (order.status === "failed") {
+          errorEl.textContent = order.error || "Generation failed";
+          errorEl.style.display = "block";
+        }
+      } catch (err) {
+        statusEl.textContent = "";
+        errorEl.textContent = String(err);
+        errorEl.style.display = "block";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

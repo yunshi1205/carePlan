@@ -1,20 +1,56 @@
 # Care Plan Generator
 
-Automatically generate specialty-pharmacy care plans from patient clinical data.
+Minimal Django app: web form → sync API → OpenAI → care plan text.
 
-See **[design_doc.md](./design_doc.md)** for product and technical design.
+See [design_doc.md](./design_doc.md) for full product design.
 
-## Local setup
+## Run with Docker
 
 ```bash
-npm install
-cp .env.example .env   # then add OPENAI_API_KEY
-npx prisma migrate dev
-npm run dev
+cp .env.example .env
+# Edit .env and set OPENAI_API_KEY
+
+docker compose up --build
 ```
 
-## Documentation
+Open **http://localhost:8000** — fill the form and click **Generate care plan**. The page waits until the API finishes (sync).
 
-| File | Description |
-| --- | --- |
-| [design_doc.md](./design_doc.md) | Design document (requirements, API, integrity rules) |
+## API
+
+**POST `/api/orders/`** — create order and generate care plan in one request.
+
+Request body (JSON):
+
+```json
+{
+  "patient_first_name": "A.",
+  "patient_last_name": "B.",
+  "medication_name": "IVIG",
+  "primary_diagnosis": "Myasthenia gravis",
+  "patient_records": "Clinical notes..."
+}
+```
+
+Response statuses: `pending` → `processing` → `completed` | `failed`
+
+- `care_plan` is included only when `status` is `completed`
+- `error` is included only when `status` is `failed`
+
+**GET `/api/orders/<id>/`** — fetch order by id (in-memory; lost on restart).
+
+## Run locally (no Docker)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export OPENAI_API_KEY=sk-...
+python manage.py runserver
+```
+
+## Stack
+
+- Python 3.12, Django 5
+- In-memory order store (no database)
+- OpenAI Chat Completions
+- No queues, workers, or WebSockets

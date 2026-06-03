@@ -1,3 +1,9 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
 # Dependencies — installed via `npm install`, not stored in Git
 node_modules/
 
