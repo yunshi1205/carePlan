@@ -1,6 +1,7 @@
 import copy
 import threading
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 _lock = threading.Lock()
@@ -14,6 +15,7 @@ def create_order(fields: dict[str, Any]) -> dict[str, Any]:
         "status": "pending",
         "care_plan": None,
         "error": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
         **fields,
     }
     with _lock:
@@ -36,3 +38,35 @@ def set_status(order_id: str, status: str, **extra: Any) -> dict[str, Any] | Non
         for key, value in extra.items():
             order[key] = value
         return copy.deepcopy(order)
+
+
+def list_all_orders() -> list[dict[str, Any]]:
+    with _lock:
+        orders = sorted(
+            _orders.values(),
+            key=lambda o: o.get("created_at", ""),
+            reverse=True,
+        )
+        return [copy.deepcopy(o) for o in orders]
+
+
+def search_orders(query: str) -> list[dict[str, Any]]:
+    q = query.strip().lower()
+    orders = list_all_orders()
+    if not q:
+        return orders
+
+    results = []
+    for order in orders:
+        searchable = " ".join(
+            [
+                order.get("id", ""),
+                order.get("patient_first_name", ""),
+                order.get("patient_last_name", ""),
+                order.get("medication_name", ""),
+                order.get("primary_diagnosis", ""),
+            ]
+        ).lower()
+        if q in searchable:
+            results.append(order)
+    return results

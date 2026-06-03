@@ -38,6 +38,10 @@ Response statuses: `pending` → `processing` → `completed` | `failed`
 
 **GET `/api/orders/<id>/`** — fetch order by id (in-memory; lost on restart).
 
+**GET `/api/orders/search/?q=...`** — search orders by name, medication, diagnosis, or id (`q` optional; empty lists all).
+
+**GET `/api/orders/<id>/download/`** — download care plan as `.txt` (only when `status` is `completed`).
+
 ## Run locally (no Docker)
 
 ```bash

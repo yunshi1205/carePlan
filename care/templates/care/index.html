@@ -6,18 +6,57 @@
   <title>Care Plan Generator</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h2 { margin-top: 2.5rem; border-top: 1px solid #ddd; padding-top: 1.5rem; }
     label { display: block; margin-top: 1rem; font-weight: 600; }
     input, textarea { width: 100%; margin-top: 0.25rem; padding: 0.5rem; box-sizing: border-box; }
-    button { margin-top: 1.5rem; padding: 0.6rem 1.2rem; cursor: pointer; }
+    button, .btn-link {
+      margin-top: 1rem;
+      margin-right: 0.5rem;
+      padding: 0.6rem 1.2rem;
+      cursor: pointer;
+      display: inline-block;
+      text-decoration: none;
+      color: inherit;
+      border: 1px solid #ccc;
+      background: #f8f8f8;
+      border-radius: 4px;
+      font-size: 0.95rem;
+    }
+    .btn-link { background: #e8f4fc; }
     #status { margin-top: 1rem; color: #555; }
-    #care-plan { margin-top: 2rem; display: none; }
+    #care-plan { margin-top: 1rem; display: none; }
     #care-plan pre { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 6px; }
     #error { color: #b00020; margin-top: 1rem; display: none; }
     button:disabled { opacity: 0.6; cursor: wait; }
+    #search-results { list-style: none; padding: 0; margin-top: 1rem; }
+    #search-results li {
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 0.5rem;
+    }
+    #search-results .meta { color: #666; font-size: 0.9rem; margin-top: 0.25rem; }
+    #search-results .actions { margin-top: 0.5rem; }
+    #search-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+    #search-row input { flex: 1; margin-top: 0; }
+    #search-row button { margin-top: 0; flex-shrink: 0; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <h1>Care Plan Generator</h1>
+
+  <h2>Search orders</h2>
+  <p>Search by patient name, medication, diagnosis, or order ID. Leave empty to list all.</p>
+  <div id="search-row">
+    <label style="flex:1">Search
+      <input type="search" id="search-input" placeholder="e.g. IVIG or B.">
+    </label>
+    <button type="button" id="search-btn">Search</button>
+  </div>
+  <ul id="search-results"></ul>
+
+  <h2>New care plan</h2>
   <p>Submit the form and wait while the care plan is generated (sync).</p>
 
   <form id="order-form">
@@ -46,6 +85,10 @@ Home meds: Pyridostigmine, Prednisone.</textarea>
 
   <section id="care-plan">
     <h2>Care plan</h2>
+    <div id="care-plan-actions" class="hidden">
+      <a id="download-link" class="btn-link" href="#">Download .txt</a>
+      <button type="button" id="view-from-search-btn" class="hidden">View selected</button>
+    </div>
     <pre id="care-plan-text"></pre>
   </section>
 
@@ -55,18 +98,115 @@ Home meds: Pyridostigmine, Prednisone.</textarea>
     const errorEl = document.getElementById("error");
     const carePlanSection = document.getElementById("care-plan");
     const carePlanText = document.getElementById("care-plan-text");
+    const carePlanActions = document.getElementById("care-plan-actions");
+    const downloadLink = document.getElementById("download-link");
     const submitBtn = document.getElementById("submit-btn");
+    const searchInput = document.getElementById("search-input");
+    const searchBtn = document.getElementById("search-btn");
+    const searchResults = document.getElementById("search-results");
 
-    function hideResults() {
+    let currentOrderId = null;
+
+    function hideCarePlan() {
       carePlanSection.style.display = "none";
-      errorEl.style.display = "none";
+      carePlanActions.classList.add("hidden");
       carePlanText.textContent = "";
+      downloadLink.href = "#";
+      currentOrderId = null;
+    }
+
+    function hideError() {
+      errorEl.style.display = "none";
       errorEl.textContent = "";
     }
 
+    function showCarePlan(order) {
+      if (order.status !== "completed" || !order.care_plan) {
+        hideCarePlan();
+        return;
+      }
+      currentOrderId = order.id;
+      carePlanText.textContent = order.care_plan;
+      downloadLink.href = `/api/orders/${order.id}/download/`;
+      downloadLink.classList.remove("hidden");
+      carePlanActions.classList.remove("hidden");
+      carePlanSection.style.display = "block";
+    }
+
+    async function loadOrder(orderId) {
+      hideError();
+      const res = await fetch(`/api/orders/${orderId}/`);
+      const order = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = order.error || "Failed to load order";
+        errorEl.style.display = "block";
+        return;
+      }
+      statusEl.textContent = `Order ${order.id} — status: ${order.status}`;
+      if (order.status === "completed") {
+        showCarePlan(order);
+      } else {
+        hideCarePlan();
+        errorEl.textContent = "Care plan is only shown when status is completed.";
+        errorEl.style.display = "block";
+      }
+    }
+
+    function renderSearchResults(results) {
+      searchResults.innerHTML = "";
+      if (!results.length) {
+        searchResults.innerHTML = "<li>No orders found.</li>";
+        return;
+      }
+      for (const row of results) {
+        const li = document.createElement("li");
+        const name = `${row.patient_first_name} ${row.patient_last_name}`.trim();
+        li.innerHTML = `
+          <strong>${name || "—"}</strong> — ${row.medication_name || "—"}
+          <div class="meta">Status: ${row.status} · ID: ${row.id.slice(0, 8)}…</div>
+          <div class="actions"></div>
+        `;
+        const actions = li.querySelector(".actions");
+
+        const viewBtn = document.createElement("button");
+        viewBtn.type = "button";
+        viewBtn.textContent = "View";
+        viewBtn.addEventListener("click", () => loadOrder(row.id));
+        actions.appendChild(viewBtn);
+
+        if (row.status === "completed") {
+          const dl = document.createElement("a");
+          dl.className = "btn-link";
+          dl.href = `/api/orders/${row.id}/download/`;
+          dl.textContent = "Download .txt";
+          dl.style.marginLeft = "0.5rem";
+          actions.appendChild(dl);
+        }
+
+        searchResults.appendChild(li);
+      }
+    }
+
+    async function runSearch() {
+      const q = searchInput.value.trim();
+      const url = q ? `/api/orders/search/?q=${encodeURIComponent(q)}` : "/api/orders/search/";
+      const res = await fetch(url);
+      const data = await res.json();
+      renderSearchResults(data.results || []);
+    }
+
+    searchBtn.addEventListener("click", runSearch);
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        runSearch();
+      }
+    });
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      hideResults();
+      hideCarePlan();
+      hideError();
 
       const data = Object.fromEntries(new FormData(form));
       submitBtn.disabled = true;
@@ -90,8 +230,8 @@ Home meds: Pyridostigmine, Prednisone.</textarea>
         statusEl.textContent = "Status: " + order.status;
 
         if (order.status === "completed" && order.care_plan) {
-          carePlanText.textContent = order.care_plan;
-          carePlanSection.style.display = "block";
+          showCarePlan(order);
+          runSearch();
         } else if (order.status === "failed") {
           errorEl.textContent = order.error || "Generation failed";
           errorEl.style.display = "block";
@@ -104,6 +244,8 @@ Home meds: Pyridostigmine, Prednisone.</textarea>
         submitBtn.disabled = false;
       }
     });
+
+    runSearch();
   </script>
 </body>
 </html>
