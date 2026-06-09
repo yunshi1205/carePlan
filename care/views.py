@@ -6,7 +6,8 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods
 
-from care import llm, store
+from care import store
+from care.debug_flow import flow, flow_break
 
 
 def _safe_filename_part(value: str) -> str:
@@ -17,6 +18,7 @@ def _safe_filename_part(value: str) -> str:
 def _order_summary(order: dict) -> dict:
     return {
         "id": order["id"],
+        "careplan_id": order.get("careplan_id"),
         "status": order["status"],
         "patient_first_name": order.get("patient_first_name", ""),
         "patient_last_name": order.get("patient_last_name", ""),
@@ -30,6 +32,7 @@ def _order_payload(order: dict) -> dict:
     """API response: care_plan only when completed."""
     payload = {
         "id": order["id"],
+        "careplan_id": order.get("careplan_id"),
         "status": order["status"],
         "patient_first_name": order.get("patient_first_name", ""),
         "patient_last_name": order.get("patient_last_name", ""),
@@ -50,10 +53,25 @@ def index(request: HttpRequest):
 @csrf_exempt
 @require_http_methods(["POST"])
 def create_order_and_generate(request: HttpRequest):
+    flow_break(
+        "B1",
+        "views.create_order_and_generate — POST /api/orders/ received",
+        method=request.method,
+        path=request.path,
+    )
     try:
         body = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError:
+        flow("B1-ERR", "Invalid JSON body")
         return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    flow(
+        "B2",
+        "JSON parsed — building order fields",
+        patient_first_name=body.get("patient_first_name", ""),
+        patient_last_name=body.get("patient_last_name", ""),
+        medication_name=body.get("medication_name", ""),
+    )
 
     fields = {
         "patient_first_name": body.get("patient_first_name", ""),
@@ -63,26 +81,22 @@ def create_order_and_generate(request: HttpRequest):
         "patient_records": body.get("patient_records", ""),
     }
 
-    order = store.create_order(fields)
-    order_id = order["id"]
+    order = store.create_order_and_enqueue(fields)
+    flow(
+        "B3",
+        "Order + pending CarePlan saved; careplan_id enqueued — returning immediately",
+        order_id=order["id"],
+        careplan_id=order["careplan_id"],
+    )
 
-    store.set_status(order_id, "processing")
-
-    try:
-        care_plan_text = llm.generate_care_plan(
-            patient_first_name=fields["patient_first_name"],
-            patient_last_name=fields["patient_last_name"],
-            medication_name=fields["medication_name"],
-            primary_diagnosis=fields["primary_diagnosis"],
-            patient_records=fields["patient_records"],
-        )
-        order = store.set_status(
-            order_id, "completed", care_plan=care_plan_text, error=None
-        )
-    except Exception as exc:
-        order = store.set_status(order_id, "failed", error=str(exc), care_plan=None)
-
-    return JsonResponse(_order_payload(order))
+    payload = {
+        "message": "已收到",
+        "careplan_id": order["careplan_id"],
+        "order_id": order["id"],
+        "status": order["status"],
+    }
+    flow_break("B4", "Returning async acknowledgment to frontend", **payload)
+    return JsonResponse(payload, status=202)
 
 
 @require_GET

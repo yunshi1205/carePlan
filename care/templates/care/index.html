@@ -57,7 +57,7 @@
   <ul id="search-results"></ul>
 
   <h2>New care plan</h2>
-  <p>Submit the form and wait while the care plan is generated (sync).</p>
+  <p>Submit the form — the server saves your order and queues generation (async). Response is immediate.</p>
 
   <form id="order-form">
     <label>First name
@@ -106,6 +106,20 @@ Home meds: Pyridostigmine, Prednisone.</textarea>
     const searchResults = document.getElementById("search-results");
 
     let currentOrderId = null;
+
+    /** Frontend trace — open DevTools → Console, filter: ORDER_FLOW */
+    function flowDebug(step, message, data) {
+      const label = `[ORDER_FLOW ${step}] ${message}`;
+      if (data !== undefined) {
+        console.log(label, data);
+      } else {
+        console.log(label);
+      }
+      // Set window.ORDER_FLOW_BREAK = true in console to pause like a breakpoint
+      if (window.ORDER_FLOW_BREAK) {
+        debugger;
+      }
+    }
 
     function hideCarePlan() {
       carePlanSection.style.display = "none";
@@ -205,43 +219,54 @@ Home meds: Pyridostigmine, Prednisone.</textarea>
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      flowDebug("F1", "Form submit — user clicked Generate");
       hideCarePlan();
       hideError();
 
       const data = Object.fromEntries(new FormData(form));
+      flowDebug("F2", "Form data collected — about to POST /api/orders/", {
+        patient_first_name: data.patient_first_name,
+        patient_last_name: data.patient_last_name,
+        medication_name: data.medication_name,
+        patient_records_length: (data.patient_records || "").length,
+      });
+
       submitBtn.disabled = true;
-      statusEl.textContent = "Status: pending → processing (please wait)…";
+      statusEl.textContent = "Submitting…";
 
       try {
+        flowDebug("F3", "fetch() started — POST /api/orders/ (async, returns immediately)");
         const res = await fetch("/api/orders/", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
-        const order = await res.json();
+        flowDebug("F4", "fetch() returned — parsing JSON", {
+          httpStatus: res.status,
+          ok: res.ok,
+        });
+        const body = await res.json();
 
         if (!res.ok) {
+          flowDebug("F4-ERR", "HTTP error response", body);
           statusEl.textContent = "";
-          errorEl.textContent = order.error || "Request failed";
+          errorEl.textContent = body.error || "Request failed";
           errorEl.style.display = "block";
           return;
         }
 
-        statusEl.textContent = "Status: " + order.status;
-
-        if (order.status === "completed" && order.care_plan) {
-          showCarePlan(order);
-          runSearch();
-        } else if (order.status === "failed") {
-          errorEl.textContent = order.error || "Generation failed";
-          errorEl.style.display = "block";
-        }
+        flowDebug("F5", "Async acknowledgment received", body);
+        statusEl.textContent =
+          `${body.message || "已收到"} — careplan_id: ${body.careplan_id} (status: ${body.status})`;
+        runSearch();
       } catch (err) {
+        flowDebug("F-ERR", "Network or JS error before/during fetch", err);
         statusEl.textContent = "";
         errorEl.textContent = String(err);
         errorEl.style.display = "block";
       } finally {
         submitBtn.disabled = false;
+        flowDebug("F7", "Submit handler finished — button re-enabled");
       }
     });
 
