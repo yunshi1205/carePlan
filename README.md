@@ -13,17 +13,31 @@ cp .env.example .env
 docker compose up --build
 ```
 
-Open **http://localhost:8000** — fill the form and click **Generate care plan**. The API returns immediately with `careplan_id`; LLM runs later via queue (worker not implemented yet).
+Open **http://localhost:8000** — submit the form; API returns immediately. **Celery worker** generates the care plan in the background. The frontend does **not** auto-update — refresh Search or check TablePlus manually.
 
-### Verify Redis queue (optional)
-
-After submitting a form:
+### Verify Celery worker
 
 ```bash
-docker compose exec redis redis-cli LRANGE careplan:queue 0 -1
+# 1. Start everything (web + worker + db + redis)
+docker compose up --build
+
+# 2. Watch worker logs in another terminal
+docker compose logs -f worker
+
+# 3. Submit a form at http://localhost:8000 — worker should log:
+#    [CELERY] Task started careplan_id=...
+#    [ORDER_FLOW L1] llm.generate_care_plan ...
+#    [CELERY] Task completed careplan_id=...
+
+# 4. Check DB status (TablePlus or psql)
+docker compose exec db psql -U careplan -d careplan -c \
+  "SELECT id, status, LEFT(content, 40) FROM careplan ORDER BY id DESC LIMIT 5;"
+
+# 5. Manual API check (use order_id from submit response)
+curl -s http://localhost:8000/api/orders/<order_id>/ | python3 -m json.tool
 ```
 
-You should see the numeric `careplan_id` at the head of the list.
+Worker consumes tasks from **Redis via Celery broker** (`redis://redis:6379/0`), not the old manual `careplan:queue` list.
 
 ### Debug: trace order flow
 
@@ -52,7 +66,15 @@ Response (`202`):
 }
 ```
 
-Poll **`GET /api/orders/<order_id>/`** later for status / care plan (when worker exists).
+Poll **`GET /api/orders/<order_id>/`** manually when you want to see if generation finished (no auto frontend update).
+
+## Celery worker
+
+| Component | Role |
+| --- | --- |
+| `care/tasks.py` | `generate_care_plan_task` — LLM + DB update, max 3 attempts |
+| `worker` service | `celery -A config worker -Q careplan` |
+| Redis | Celery broker (task queue) |
 
 **GET `/api/orders/<id>/`** — fetch order by id (stored in PostgreSQL).
 
@@ -101,6 +123,5 @@ python manage.py runserver
 ## Stack
 
 - Python 3.12, Django 5
-- PostgreSQL 16 + Redis 7 (Docker)
+- PostgreSQL 16 + Redis 7 + Celery worker (Docker)
 - Anthropic Messages API (Claude)
-- No queues, workers, or WebSockets

@@ -1,18 +1,14 @@
-import redis
-from django.conf import settings
-
-QUEUE_KEY = "careplan:queue"
-
-
-def _client() -> redis.Redis:
-    return redis.Redis(
-        host=settings.REDIS_HOST,
-        port=int(settings.REDIS_PORT),
-        db=int(settings.REDIS_DB),
-        decode_responses=True,
-    )
+from care.debug_flow import flow
 
 
 def enqueue_care_plan(careplan_id: int) -> None:
-    """Push careplan_id onto Redis list (worker will consume later)."""
-    _client().lpush(QUEUE_KEY, str(careplan_id))
+    """Dispatch Celery task — broker stores the job in Redis."""
+    from care.tasks import generate_care_plan_task
+
+    generate_care_plan_task.delay(careplan_id)
+    flow(
+        "S3",
+        "queue.enqueue_care_plan — Celery task dispatched",
+        careplan_id=careplan_id,
+        task="care.generate_care_plan",
+    )

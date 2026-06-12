@@ -77,19 +77,31 @@ def create_order(fields: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_order_and_enqueue(fields: dict[str, Any]) -> dict[str, Any]:
-    """Create order + pending CarePlan, then enqueue careplan_id in Redis."""
+    """Create order + pending CarePlan, then dispatch Celery task."""
     from care.queue import enqueue_care_plan
 
     order_dict = create_order(fields)
     careplan_id = order_dict["careplan_id"]
     enqueue_care_plan(careplan_id)
-    flow(
-        "S3",
-        "store.create_order_and_enqueue — pushed to Redis",
-        careplan_id=careplan_id,
-        queue="careplan:queue",
-    )
     return order_dict
+
+
+def update_careplan(careplan_id: int, status: str, **extra: Any) -> None:
+    cp = CarePlan.objects.get(id=careplan_id)
+    cp.status = status
+    if "content" in extra:
+        cp.content = extra["content"]
+    if "error" in extra:
+        cp.error = extra["error"]
+    cp.save()
+    flow(
+        "S2",
+        "store.update_careplan — updated in PostgreSQL",
+        careplan_id=careplan_id,
+        status=status,
+        has_content=bool(cp.content),
+        has_error=bool(cp.error),
+    )
 
 
 def get_order(order_id: str) -> dict[str, Any] | None:
